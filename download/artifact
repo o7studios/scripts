@@ -19,21 +19,25 @@ VERSION="$3"
 OUTPUT="$4"
 FILE_NAME="$5"
 
+# ---------------------------
+# Validate arguments
+# ---------------------------
 if [ -z "$DOMAIN" ] || [ -z "$PROJECT" ] || [ -z "$VERSION" ] || [ -z "$OUTPUT" ]; then
     echo "Usage: $0 <DOMAIN> <PROJECT> <VERSION|latest> <OUTPUT_PATH> [FILE_NAME]"
     exit 1
 fi
 
+# Ensure jq is installed
 if ! command -v jq >/dev/null 2>&1; then
     echo "Error: jq is not installed."
     exit 1
 fi
 
-# ===========================
+# ---------------------------
 # Determine version if "latest"
-# ===========================
+# ---------------------------
 if [ "$VERSION" = "latest" ]; then
-    VERSION=$(curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[-1]')
+    VERSION=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[-1]')
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "Error: Could not determine the latest version for project '${PROJECT}'."
         exit 1
@@ -41,10 +45,10 @@ if [ "$VERSION" = "latest" ]; then
     echo "Using latest version: $VERSION"
 fi
 
-# ===========================
+# ---------------------------
 # Check if the version exists
-# ===========================
-AVAILABLE=$(curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]' | grep -Fx "$VERSION" || true)
+# ---------------------------
+AVAILABLE=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]' | grep -Fx "$VERSION" || true)
 if [ -z "$AVAILABLE" ]; then
     echo "Error: Version '$VERSION' for project '$PROJECT' does not exist."
     echo "Available versions:"
@@ -52,11 +56,22 @@ if [ -z "$AVAILABLE" ]; then
     exit 1
 fi
 
-# ===========================
-# Fetch builds for the version
-# ===========================
-BUILDS_JSON=$(curl -s "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
+# ---------------------------
+# Fetch builds for the version (robust)
+# ---------------------------
+BUILDS_JSON=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds") || true
 
+# Validate JSON before parsing
+echo "$BUILDS_JSON" | jq . >/dev/null 2>&1 || {
+    echo "Error: API did not return valid JSON. Possibly network issue, redirect, or maintenance page."
+    echo "Response preview:"
+    echo "$BUILDS_JSON" | head -n 20
+    exit 1
+}
+
+# ---------------------------
+# Determine latest stable build
+# ---------------------------
 LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '.builds | map(select(.channel == "default") | .build) | .[-1]')
 
 if [ -z "$LATEST_BUILD" ] || [ "$LATEST_BUILD" = "null" ]; then
@@ -64,9 +79,9 @@ if [ -z "$LATEST_BUILD" ] || [ "$LATEST_BUILD" = "null" ]; then
     exit 1
 fi
 
-# ===========================
+# ---------------------------
 # Determine filename
-# ===========================
+# ---------------------------
 if [ -z "$FILE_NAME" ]; then
     # Default format for Paper projects
     FILE_NAME="${PROJECT}-${VERSION}-${LATEST_BUILD}.jar"
@@ -74,10 +89,20 @@ fi
 
 DOWNLOAD_URL="${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds/${LATEST_BUILD}/downloads/${FILE_NAME}"
 
+# ---------------------------
+# Download the file
+# ---------------------------
 echo "Downloading:"
 echo "  URL:    $DOWNLOAD_URL"
 echo "  Output: $OUTPUT"
 
-curl -L -o "$OUTPUT" "$DOWNLOAD_URL"
+curl -L --retry 5 --retry-delay 2 -o "$OUTPUT" "$DOWNLOAD_URL"
+
+# Optional: verify file is not HTML (common if download fails)
+if head -c 15 "$OUTPUT" | grep -q "Not Found"; then
+    echo "Error: Download failed. Possibly the build does not exist or network issue."
+    rm -f "$OUTPUT"
+    exit 1
+fi
 
 echo "Download completed: $OUTPUT"
