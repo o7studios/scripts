@@ -39,6 +39,7 @@ if [ "$VERSION" = "latest" ]; then
     VERSION=$(jq -r '.versions[-1]' "$TMP_JSON")
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "Error: Could not determine the latest version for project '${PROJECT}'."
+        rm -f "$TMP_JSON"
         exit 1
     fi
     echo "Using latest version: $VERSION"
@@ -105,6 +106,15 @@ if [ -z "$FILE_NAME" ]; then
 fi
 
 DOWNLOAD_URL="${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds/${LATEST_BUILD}/downloads/${FILE_NAME}"
+
+# ---------------------------
+# Ensure output directory exists
+# ---------------------------
+OUTPUT_DIR=$(dirname "$OUTPUT")
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo "Creating directory: $OUTPUT_DIR"
+    mkdir -p "$OUTPUT_DIR"
+fi
 
 echo "Downloading:"
 echo "  URL:    $DOWNLOAD_URL"
