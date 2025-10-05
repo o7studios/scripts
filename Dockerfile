@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="o7studios scripts" \
 
 # Install dependencies
 RUN apt-get update
-RUN apt-get install -y curl jq ca-certificates
+RUN apt-get install -y curl jq ca-certificates dos2unix
 RUN rm -rf /var/lib/apt/lists/*
 
 # Directory for scripts
@@ -20,6 +20,8 @@ RUN mkdir -p $SCRIPT_DIR
 # Copy all scripts into image
 COPY download/* $SCRIPT_DIR/
 COPY paper/* $SCRIPT_DIR/
+
+RUN dos2unix $SCRIPT_DIR/*
 
 # Make all scripts executable
 RUN chmod +x $SCRIPT_DIR/*
