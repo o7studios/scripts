@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -e
+
+# ===========================
+# Usage:
+# ./viaversion [TAG|latest] [OUTPUT_PATH]
+#
+# TAG: optional, GitHub release tag (default: latest)
+# OUTPUT_PATH: optional, default './viaversion.jar'
+# ===========================
+
+TAG="${1:-latest}"
+OUTPUT="${2:-./viaversion.jar}"
+REPO="viaversion/viaversion"
+ASSET_PATTERN="ViaVersion-.*\.jar"
+
+# Call the parent 'github' script
+github "$REPO" "$ASSET_PATTERN" "$OUTPUT" "$TAG"
