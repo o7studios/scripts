@@ -19,9 +19,6 @@ VERSION="$3"
 OUTPUT="$4"
 FILE_NAME="$5"
 
-# ---------------------------
-# Validate arguments
-# ---------------------------
 if [ -z "$DOMAIN" ] || [ -z "$PROJECT" ] || [ -z "$VERSION" ] || [ -z "$OUTPUT" ]; then
     echo "Usage: $0 <DOMAIN> <PROJECT> <VERSION|latest> <OUTPUT_PATH> [FILE_NAME]"
     exit 1
@@ -32,11 +29,14 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 
+TMP_JSON=$(mktemp)
+
 # ---------------------------
 # Determine version if "latest"
 # ---------------------------
 if [ "$VERSION" = "latest" ]; then
-    VERSION=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[-1]')
+    curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" -o "$TMP_JSON"
+    VERSION=$(jq -r '.versions[-1]' "$TMP_JSON")
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "Error: Could not determine the latest version for project '${PROJECT}'."
         exit 1
@@ -47,39 +47,43 @@ fi
 # ---------------------------
 # Check if the version exists
 # ---------------------------
-AVAILABLE=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]' | grep -Fx "$VERSION" || true)
+curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}" -o "$TMP_JSON"
+AVAILABLE=$(jq -r '.versions[]' "$TMP_JSON" | grep -Fx "$VERSION" || true)
 if [ -z "$AVAILABLE" ]; then
     echo "Error: Version '$VERSION' for project '$PROJECT' does not exist."
     echo "Available versions:"
-    curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]'
+    jq -r '.versions[]' "$TMP_JSON"
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
 # ---------------------------
 # Fetch builds for the version
 # ---------------------------
-BUILDS_JSON=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
+curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds" -o "$TMP_JSON"
 
-# Validate JSON before parsing
-echo "$BUILDS_JSON" | jq . >/dev/null 2>&1 || {
+# Validate JSON
+jq . "$TMP_JSON" >/dev/null 2>&1 || {
     echo "Error: API did not return valid JSON. Possibly network issue or maintenance page."
     echo "Response preview:"
-    echo "$BUILDS_JSON" | head -n 20
+    head -n 20 "$TMP_JSON"
+    rm -f "$TMP_JSON"
     exit 1
 }
 
 # ---------------------------
 # Determine latest stable build
 # ---------------------------
-LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '
-  .builds
-  | map(select(.channel == "default"))
-  | map(.build)
-  | last
-')
+LATEST_BUILD=$(jq -r '
+    .builds
+    | map(select(.channel == "default"))
+    | map(.build)
+    | last
+' "$TMP_JSON")
 
 if [ -z "$LATEST_BUILD" ] || [ "$LATEST_BUILD" = "null" ]; then
     echo "Warning: No stable build found for version $VERSION."
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
@@ -87,24 +91,21 @@ fi
 # Determine filename
 # ---------------------------
 if [ -z "$FILE_NAME" ]; then
-    # Try to use the application download name from the API (robust against line breaks)
-    FILE_NAME=$(echo "$BUILDS_JSON" | jq -r '
-      .builds
-      | map(select(.channel == "default"))
-      | last
-      | .downloads.application.name
-    ')
+    FILE_NAME=$(jq -r '
+        .builds
+        | map(select(.channel == "default"))
+        | last
+        | .downloads.application.name
+    ' "$TMP_JSON")
     if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
         echo "Error: Could not determine download filename from API."
+        rm -f "$TMP_JSON"
         exit 1
     fi
 fi
 
 DOWNLOAD_URL="${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds/${LATEST_BUILD}/downloads/${FILE_NAME}"
 
-# ---------------------------
-# Download the file
-# ---------------------------
 echo "Downloading:"
 echo "  URL:    $DOWNLOAD_URL"
 echo "  Output: $OUTPUT"
@@ -115,7 +116,9 @@ curl -L --retry 5 --retry-delay 2 -o "$OUTPUT" "$DOWNLOAD_URL"
 if head -c 15 "$OUTPUT" | grep -q "Not Found"; then
     echo "Error: Download failed. Possibly the build does not exist or network issue."
     rm -f "$OUTPUT"
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
 echo "Download completed: $OUTPUT"
+rm -f "$TMP_JSON"
