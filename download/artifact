@@ -3,7 +3,7 @@ set -e
 
 # ===========================
 # Usage:
-# ./artifact <DOMAIN> <PROJECT> <VERSION> <OUTPUT_PATH>
+# ./artifact <DOMAIN> <PROJECT> <VERSION> <OUTPUT_PATH> [FILE_NAME]
 #
 # Examples:
 # ./artifact https://download.geysermc.org/v2 floodgate latest ./plugins/floodgate.jar spigot
