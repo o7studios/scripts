@@ -6,14 +6,14 @@ set -e
 # ./github <REPO> <ASSET_PATTERN> <OUTPUT_PATH> [TAG|latest] [GITHUB_TOKEN]
 #
 # REPO: GitHub repository in the form owner/repo (e.g., o7studios/octopus-plugin)
-# ASSET_PATTERN: regex pattern to match the asset filename (e.g., octopus-all.jar)
+# ASSET_PATTERN: regex pattern to match the asset filename (e.g., octopus-all.jar or ViaVersion-.*\.jar)
 # OUTPUT_PATH: local path to save the file
 # TAG: optional, default "latest". Can be a specific tag.
 # GITHUB_TOKEN: optional, used for private repos or higher rate limits
 #
 # Examples:
 # ./github o7studios/octopus-plugin "octopus-all.jar" ./plugins/octopus.jar
-# ./github myuser/myrepo "plugin-.*\.jar" ./plugins/plugin.jar v1.2.0 YOUR_TOKEN
+# ./github ViaVersion/ViaVersion "ViaVersion-.*\.jar" ./plugins/viaversion.jar v5.4.2
 # ===========================
 
 REPO="$1"
@@ -63,7 +63,7 @@ fi
 # ---------------------------
 # Find asset matching the pattern
 # ---------------------------
-ASSET_ID=$(echo "$RELEASE_JSON" | jq -r --arg pattern "$ASSET_PATTERN" '.assets[] | select(.name | test($pattern)) | .id')
+ASSET_ID=$(echo "$RELEASE_JSON" | jq -r --arg pattern "$ASSET_PATTERN" '.assets[] | select(.name | test($pattern)) | .id' | head -n1)
 
 if [ -z "$ASSET_ID" ]; then
     echo "Error: No asset matching pattern '$ASSET_PATTERN' found in release '$TAG'"
@@ -73,7 +73,6 @@ if [ -z "$ASSET_ID" ]; then
 fi
 
 DOWNLOAD_URL="https://api.github.com/repos/$REPO/releases/assets/$ASSET_ID"
-
 echo "Found asset ID $ASSET_ID. Preparing to download to $OUTPUT ..."
 
 # ---------------------------
@@ -88,7 +87,7 @@ fi
 # ---------------------------
 # Download asset
 # ---------------------------
-echo "Downloading..."
+echo "Downloading asset..."
 if [ -n "$TOKEN" ]; then
     curl -L -H "Authorization: token $TOKEN" -H "Accept: application/octet-stream" "$DOWNLOAD_URL" -o "$OUTPUT"
 else
@@ -99,9 +98,9 @@ fi
 # Verify download
 # ---------------------------
 if head -c 15 "$OUTPUT" | grep -qi "<!DOCTYPE html>"; then
-    echo "Error: Download failed. Likely the asset is private and token is missing or invalid."
+    echo "Error: Download failed. Likely the asset is private or the token is missing/invalid."
     rm -f "$OUTPUT"
     exit 1
 fi
 
-echo "Download completed: $OUTPUT"
+echo "Download completed successfully: $OUTPUT"
