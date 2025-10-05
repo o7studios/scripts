@@ -27,7 +27,6 @@ if [ -z "$DOMAIN" ] || [ -z "$PROJECT" ] || [ -z "$VERSION" ] || [ -z "$OUTPUT" 
     exit 1
 fi
 
-# Ensure jq is installed
 if ! command -v jq >/dev/null 2>&1; then
     echo "Error: jq is not installed."
     exit 1
@@ -57,13 +56,13 @@ if [ -z "$AVAILABLE" ]; then
 fi
 
 # ---------------------------
-# Fetch builds for the version (robust)
+# Fetch builds for the version
 # ---------------------------
-BUILDS_JSON=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds") || true
+BUILDS_JSON=$(curl -s --retry 5 --retry-delay 2 "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
 
 # Validate JSON before parsing
 echo "$BUILDS_JSON" | jq . >/dev/null 2>&1 || {
-    echo "Error: API did not return valid JSON. Possibly network issue, redirect, or maintenance page."
+    echo "Error: API did not return valid JSON. Possibly network issue or maintenance page."
     echo "Response preview:"
     echo "$BUILDS_JSON" | head -n 20
     exit 1
@@ -72,7 +71,12 @@ echo "$BUILDS_JSON" | jq . >/dev/null 2>&1 || {
 # ---------------------------
 # Determine latest stable build
 # ---------------------------
-LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '.builds | map(select(.channel == "default") | .build) | .[-1]')
+LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '
+  .builds
+  | map(select(.channel == "default"))
+  | map(.build)
+  | last
+')
 
 if [ -z "$LATEST_BUILD" ] || [ "$LATEST_BUILD" = "null" ]; then
     echo "Warning: No stable build found for version $VERSION."
@@ -83,8 +87,17 @@ fi
 # Determine filename
 # ---------------------------
 if [ -z "$FILE_NAME" ]; then
-    # Default format for Paper projects
-    FILE_NAME="${PROJECT}-${VERSION}-${LATEST_BUILD}.jar"
+    # Try to use the application download name from the API (robust against line breaks)
+    FILE_NAME=$(echo "$BUILDS_JSON" | jq -r '
+      .builds
+      | map(select(.channel == "default"))
+      | last
+      | .downloads.application.name
+    ')
+    if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
+        echo "Error: Could not determine download filename from API."
+        exit 1
+    fi
 fi
 
 DOWNLOAD_URL="${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds/${LATEST_BUILD}/downloads/${FILE_NAME}"
@@ -98,7 +111,7 @@ echo "  Output: $OUTPUT"
 
 curl -L --retry 5 --retry-delay 2 -o "$OUTPUT" "$DOWNLOAD_URL"
 
-# Optional: verify file is not HTML (common if download fails)
+# Verify the file is not an HTML error page
 if head -c 15 "$OUTPUT" | grep -q "Not Found"; then
     echo "Error: Download failed. Possibly the build does not exist or network issue."
     rm -f "$OUTPUT"
