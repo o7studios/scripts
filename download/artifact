@@ -42,12 +42,10 @@ if [ "$VERSION" = "latest" ]; then
 fi
 
 # ===========================
-# Fetch builds for the version
-# ===========================
-BUILDS_JSON=$(curl -s "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
-
 # Check if the version exists
-if ! echo "$BUILDS_JSON" | jq -e '.builds' >/dev/null 2>&1; then
+# ===========================
+AVAILABLE=$(curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]' | grep -Fx "$VERSION" || true)
+if [ -z "$AVAILABLE" ]; then
     echo "Error: Version '$VERSION' for project '$PROJECT' does not exist."
     echo "Available versions:"
     curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]'
@@ -55,11 +53,13 @@ if ! echo "$BUILDS_JSON" | jq -e '.builds' >/dev/null 2>&1; then
 fi
 
 # ===========================
-# Determine latest stable build
+# Fetch builds for the version
 # ===========================
+BUILDS_JSON=$(curl -s "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
+
 LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '.builds | map(select(.channel == "default") | .build) | .[-1]')
 
-if [ "$LATEST_BUILD" = "null" ] || [ -z "$LATEST_BUILD" ]; then
+if [ -z "$LATEST_BUILD" ] || [ "$LATEST_BUILD" = "null" ]; then
     echo "Warning: No stable build found for version $VERSION."
     exit 1
 fi
