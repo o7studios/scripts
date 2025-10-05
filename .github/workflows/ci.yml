@@ -1,0 +1,85 @@
+name: "⚙️ CI & Release Workflow"
+on:
+  push:
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    name: "🐳 Build & Push Docker Image"
+    if: ( github.event_name == 'push' && ( github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') ) )
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image-ref.outputs.image }}
+      image_latest: ${{ steps.image-ref.outputs.image_latest }}
+    steps:
+      - name: "📥 Checkout Code"
+        uses: actions/checkout@v5
+
+      - name: "🔧 Set up Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "🔐 Login to Container Registry"
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🔢 Extract Version Tag"
+        id: tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            FULL_TAG="${GITHUB_REF#refs/tags/}"        # v1.2.3
+            CLEAN_TAG="${FULL_TAG#v}"                  # 1.2.3
+            echo "tag=${FULL_TAG}" >> $GITHUB_OUTPUT
+            echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+            echo "📦 Release tag: $FULL_TAG → Version: $CLEAN_TAG" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "tag=" >> $GITHUB_OUTPUT
+            echo "clean_tag=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "🏷️ Create Image Reference"
+        id: image-ref
+        run: |
+          REF=$(git rev-parse --short $GITHUB_SHA)
+          IMAGE=${{ env.REGISTRY }}/${{ github.repository }}:${REF}
+          IMAGE_LATEST=${{ env.REGISTRY }}/${{ github.repository }}:latest
+
+          echo "image=${IMAGE}" >> $GITHUB_STATE
+          echo "image_latest=${IMAGE_LATEST}" >> $GITHUB_OUTPUT
+
+          if [ -n "${{ steps.tag.outputs.tag }}" ]; then
+            IMAGE_TAGGED=${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.tag.outputs.clean_tag }}
+            echo "image_tagged=${IMAGE_TAGGED}" >> $GITHUB_OUTPUT
+            echo "${IMAGE_TAGGED}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: "📦 Set cache-to value"
+        id: cache-config
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "CACHE_TO=type=inline" >> $GITHUB_ENV
+          else
+            echo "CACHE_TO=type=registry,ref=${{ env.REGISTRY }}/${{ github.repository }}:latest,mode=max" >> $GITHUB_ENV
+          fi
+
+      - name: "📦 Build & Push Docker Image"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v8
+          cache-from: type=registry,ref=${{ steps.image-ref.outputs.image_latest }}
+          cache-to: ${{ env.CACHE_TO }}
+          tags: |
+            ${{ steps.image-ref.outputs.image }}
+            ${{ steps.image-ref.outputs.image_latest }}
+            ${{ steps.image-ref.outputs.image_tagged || '' }}
