@@ -3,7 +3,7 @@ set -e
 
 # ===========================
 # Usage:
-# ./octopus [TAG|latest] [OUTPUT_PATH] [GITHUB_TOKEN]
+# ./octopus [TAG|latest] [OUTPUT_PATH]
 #
 # TAG: optional, GitHub release tag (default: latest)
 # OUTPUT_PATH: optional, default './octopus.jar'
