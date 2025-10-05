@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env sh
 set -e
 
 # ===========================
@@ -6,61 +6,78 @@ set -e
 # ./artifact <DOMAIN> <PROJECT> <VERSION> <OUTPUT_PATH> [FILE_NAME]
 #
 # Examples:
-# ./artifact https://download.geysermc.org/v2 floodgate latest ./plugins/floodgate.jar spigot
-# ./artifact https://api.papermc.io/v2 paper 1.21.8 ./paperclip.jar
+#   Paper (automatic filename):
+#     ./artifact https://api.papermc.io/v2 paper latest ./paperclip.jar
+#
+#   Floodgate/Geyser (explicit filename):
+#     ./artifact https://download.geysermc.org/v2 floodgate latest ./plugins/floodgate.jar spigot
 # ===========================
 
-DOMAIN="$1"       # e.g. https://download.geysermc.org/v2 or https://api.papermc.io/v2
-PROJECT="$2"      # e.g. paper, floodgate
-VERSION="$3"      # e.g. 1.21.8 or latest
-OUTPUT="$4"       # e.g. ./plugins/floodgate.jar
-FILE_NAME="$5"    # e.g. spigot or null
+DOMAIN="$1"
+PROJECT="$2"
+VERSION="$3"
+OUTPUT="$4"
+FILE_NAME="$5"
 
 if [ -z "$DOMAIN" ] || [ -z "$PROJECT" ] || [ -z "$VERSION" ] || [ -z "$OUTPUT" ]; then
-    echo "usage: $0 <DOMAIN> <PROJECT> <VERSION|latest> <OUTPUT_PATH> [FILE_NAME]"
+    echo "Usage: $0 <DOMAIN> <PROJECT> <VERSION|latest> <OUTPUT_PATH> [FILE_NAME]"
     exit 1
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
-    echo "error: \`jq\` not installed"
+    echo "Error: jq is not installed."
     exit 1
 fi
 
 # ===========================
-# If VERSION equals `latest` then scrape latest version.
+# Determine version if "latest"
 # ===========================
 if [ "$VERSION" = "latest" ]; then
     VERSION=$(curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[-1]')
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-        echo "error: could not find newest version of project \`${PROJECT}\`"
+        echo "Error: Could not determine the latest version for project '${PROJECT}'."
         exit 1
     fi
-    echo "using newest version: $VERSION"
+    echo "Using latest version: $VERSION"
 fi
 
 # ===========================
-# Scrape Buildnumber
+# Fetch builds for the version
 # ===========================
-LATEST_BUILD=$(curl -s "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds" | \
-    jq -r '.builds | map(select(.channel == "default") | .build) | .[-1]')
+BUILDS_JSON=$(curl -s "${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds")
 
-if [ "$LATEST_BUILD" = "null" ] || [ -z "$LATEST_BUILD" ]; then
-    echo "error: no stable build found for version \`$VERSION\`"
+# Check if the version exists
+if ! echo "$BUILDS_JSON" | jq -e '.builds' >/dev/null 2>&1; then
+    echo "Error: Version '$VERSION' for project '$PROJECT' does not exist."
+    echo "Available versions:"
+    curl -s "${DOMAIN}/projects/${PROJECT}" | jq -r '.versions[]'
     exit 1
 fi
 
 # ===========================
-# Setting files name
+# Determine latest stable build
+# ===========================
+LATEST_BUILD=$(echo "$BUILDS_JSON" | jq -r '.builds | map(select(.channel == "default") | .build) | .[-1]')
+
+if [ "$LATEST_BUILD" = "null" ] || [ -z "$LATEST_BUILD" ]; then
+    echo "Warning: No stable build found for version $VERSION."
+    exit 1
+fi
+
+# ===========================
+# Determine filename
 # ===========================
 if [ -z "$FILE_NAME" ]; then
-    # default format
+    # Default format for Paper projects
     FILE_NAME="${PROJECT}-${VERSION}-${LATEST_BUILD}.jar"
 fi
 
 DOWNLOAD_URL="${DOMAIN}/projects/${PROJECT}/versions/${VERSION}/builds/${LATEST_BUILD}/downloads/${FILE_NAME}"
 
-echo "URL:    $DOWNLOAD_URL"
-echo "Output: $OUTPUT"
+echo "Downloading:"
+echo "  URL:    $DOWNLOAD_URL"
+echo "  Output: $OUTPUT"
 
 curl -L -o "$OUTPUT" "$DOWNLOAD_URL"
-echo "download finished → $OUTPUT"
+
+echo "Download completed: $OUTPUT"
