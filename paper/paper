@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+set -e
+
+# ===========================
+# Usage:
+# ./paper.sh <VERSION|latest> [OUTPUT_PATH]
+#
+# VERSION: Paper version (e.g., 1.21.8) or 'latest'
+# OUTPUT_PATH: optional, default './paperclip.jar'
+# ===========================
+
+VERSION="$1"
+OUTPUT="${2:-./paperclip.jar}"
+DOMAIN="https://api.papermc.io/v2"
+PROJECT="paper"
+
+if [ -z "$VERSION" ]; then
+    echo "Usage: $0 <VERSION|latest> [OUTPUT_PATH]"
+    exit 1
+fi
+
+# Call the parent 'artifact' script
+# The parent will handle 'latest', builds, and default filename
+artifact "$DOMAIN" "$PROJECT" "$VERSION" "$OUTPUT"

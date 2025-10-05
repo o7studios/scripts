@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -e
+
+# ===========================
+# Usage:
+# ./cheetah [TAG|latest] [OUTPUT_PATH] [GITHUB_TOKEN]
+#
+# TAG: optional, GitHub release tag (default: latest)
+# OUTPUT_PATH: optional, default './cheetah.jar'
+# ===========================
+
+TAG="${1:-latest}"
+OUTPUT="${2:-./cheetah.jar}"
+REPO="o7studios/cheetah-plugin"
+ASSET_PATTERN="cheetah-all.jar"
+
+# Call the parent 'github' script
+github "$REPO" "$ASSET_PATTERN" "$OUTPUT" "$TAG"

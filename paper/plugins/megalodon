@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+set -e
+
+# ===========================
+# Usage:
+# ./megalodon [TAG|latest] [OUTPUT_PATH] [GITHUB_TOKEN]
+#
+# TAG: optional, GitHub release tag (default: latest)
+# OUTPUT_PATH: optional, default './megalodon.jar'
+# GITHUB_TOKEN: required for access
+# ===========================
+
+TAG="${1:-latest}"
+OUTPUT="${2:-./megalodon.jar}"
+TOKEN="$3"
+REPO="o7studios/megalodon"
+ASSET_PATTERN="megalodon-all.jar"
+
+# Call the parent 'github' script
+github "$REPO" "$ASSET_PATTERN" "$OUTPUT" "$TAG" "$TOKEN"
