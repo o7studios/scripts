@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -e
+
+# ===========================
+# Usage:
+# ./floodgate [VERSION|latest] [OUTPUT_PATH]
+#
+# VERSION: Floodgate version (default: latest)
+# OUTPUT_PATH: optional, default './floodgate.jar'
+# ===========================
+
+VERSION="${1:-latest}"
+OUTPUT="${2:-./floodgate.jar}"
+DOMAIN="https://download.geysermc.org/v2"
+PROJECT="floodgate"
+
+# Call the parent 'artifact' script
+artifact "$DOMAIN" "$PROJECT" "$VERSION" "$OUTPUT" "spigot"
