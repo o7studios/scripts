@@ -1,5 +1,13 @@
 FROM --platform=$BUILDPLATFORM debian AS paper
 
+LABEL org.opencontainers.image.title="o7studios scripts" \
+      org.opencontainers.image.description="A collection of scripts for managing your Dockerfile environments" \
+      org.opencontainers.image.url="https://www.o7.studio/" \
+      org.opencontainers.image.source="https://github.com/o7studios/scripts" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.vendor="o7studios" \
+      org.opencontainers.image.authors="julian.siebert@o7.studio"
+
 # Install dependencies
 RUN apt-get update
 RUN apt-get install -y curl jq ca-certificates
