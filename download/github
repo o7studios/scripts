@@ -38,37 +38,52 @@ fi
 
 echo "Fetching release info from $API_URL ..."
 
+TMP_JSON=$(mktemp)
+
 # ---------------------------
-# Fetch release JSON
+# Fetch release JSON to file
 # ---------------------------
 if [ -n "$TOKEN" ]; then
-    RELEASE_JSON=$(curl -sL -H "Authorization: token $TOKEN" "$API_URL")
+    curl -sL -H "Authorization: token $TOKEN" "$API_URL" -o "$TMP_JSON"
 else
-    RELEASE_JSON=$(curl -sL "$API_URL")
+    curl -sL "$API_URL" -o "$TMP_JSON"
 fi
 
 # ---------------------------
-# Check for errors in API response
+# Validate JSON
 # ---------------------------
-MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message // empty')
+jq . "$TMP_JSON" >/dev/null 2>&1 || {
+    echo "Error: API did not return valid JSON. Possibly network issue or maintenance page."
+    echo "Response preview:"
+    head -n 20 "$TMP_JSON"
+    rm -f "$TMP_JSON"
+    exit 1
+}
+
+# ---------------------------
+# Check for API error messages
+# ---------------------------
+MESSAGE=$(jq -r '.message // empty' "$TMP_JSON")
 if [ -n "$MESSAGE" ]; then
     if echo "$MESSAGE" | grep -q "Not Found"; then
         echo "Error: Release not found or token does not have permission to access this repository."
     else
         echo "Error fetching release info: $MESSAGE"
     fi
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
 # ---------------------------
-# Find asset matching the pattern
+# Find asset matching the pattern (first match)
 # ---------------------------
-ASSET_ID=$(echo "$RELEASE_JSON" | jq -r --arg pattern "$ASSET_PATTERN" '.assets[] | select(.name | test($pattern)) | .id' | head -n1)
+ASSET_ID=$(jq -r --arg pattern "$ASSET_PATTERN" '.assets[] | select(.name | test($pattern)) | .id' "$TMP_JSON" | head -n1)
 
 if [ -z "$ASSET_ID" ]; then
     echo "Error: No asset matching pattern '$ASSET_PATTERN' found in release '$TAG'"
     echo "Available assets:"
-    echo "$RELEASE_JSON" | jq -r '.assets[].name'
+    jq -r '.assets[].name' "$TMP_JSON"
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
@@ -100,7 +115,13 @@ fi
 if head -c 15 "$OUTPUT" | grep -qi "<!DOCTYPE html>"; then
     echo "Error: Download failed. Likely the asset is private or the token is missing/invalid."
     rm -f "$OUTPUT"
+    rm -f "$TMP_JSON"
     exit 1
 fi
 
 echo "Download completed successfully: $OUTPUT"
+
+# ---------------------------
+# Clean up
+# ---------------------------
+rm -f "$TMP_JSON"
