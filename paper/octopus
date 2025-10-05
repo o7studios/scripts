@@ -10,7 +10,7 @@ set -e
 # ===========================
 
 TAG="${1:-latest}"
-OUTPUT="${2:-./cheetah.jar}"
+OUTPUT="${2:-./octopus.jar}"
 REPO="o7studios/octopus-plugin"
 ASSET_PATTERN="octopus-all.jar"
 
