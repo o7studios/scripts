@@ -5,8 +5,8 @@ set -e
 # Usage:
 # ./github <REPO> <ASSET_PATTERN> <OUTPUT_PATH> [TAG|latest] [GITHUB_TOKEN]
 #
-# REPO: GitHub repo in the form owner/repo (e.g., o7studios/octopus-plugin)
-# ASSET_PATTERN: a regex pattern to match the asset filename (e.g., octopus-all.jar)
+# REPO: GitHub repository in the form owner/repo (e.g., o7studios/octopus-plugin)
+# ASSET_PATTERN: regex pattern to match the asset filename (e.g., octopus-all.jar)
 # OUTPUT_PATH: local path to save the file
 # TAG: optional, default "latest". Can be a specific tag.
 # GITHUB_TOKEN: optional, used for private repos or higher rate limits
@@ -27,21 +27,29 @@ if [ -z "$REPO" ] || [ -z "$ASSET_PATTERN" ] || [ -z "$OUTPUT" ]; then
     exit 1
 fi
 
+# ---------------------------
 # Build API URL
+# ---------------------------
 if [ "$TAG" = "latest" ]; then
     API_URL="https://api.github.com/repos/$REPO/releases/latest"
 else
     API_URL="https://api.github.com/repos/$REPO/releases/tags/$TAG"
 fi
 
+echo "Fetching release info from $API_URL ..."
+
+# ---------------------------
 # Fetch release JSON
+# ---------------------------
 if [ -n "$TOKEN" ]; then
     RELEASE_JSON=$(curl -sL -H "Authorization: token $TOKEN" "$API_URL")
 else
     RELEASE_JSON=$(curl -sL "$API_URL")
 fi
 
-# Check for errors
+# ---------------------------
+# Check for errors in API response
+# ---------------------------
 MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message // empty')
 if [ -n "$MESSAGE" ]; then
     if echo "$MESSAGE" | grep -q "Not Found"; then
@@ -52,7 +60,9 @@ if [ -n "$MESSAGE" ]; then
     exit 1
 fi
 
-# Find the asset ID matching the pattern
+# ---------------------------
+# Find asset matching the pattern
+# ---------------------------
 ASSET_ID=$(echo "$RELEASE_JSON" | jq -r --arg pattern "$ASSET_PATTERN" '.assets[] | select(.name | test($pattern)) | .id')
 
 if [ -z "$ASSET_ID" ]; then
@@ -62,19 +72,32 @@ if [ -z "$ASSET_ID" ]; then
     exit 1
 fi
 
-# Determine download URL for private/public assets
 DOWNLOAD_URL="https://api.github.com/repos/$REPO/releases/assets/$ASSET_ID"
 
-echo "Downloading asset ID $ASSET_ID to $OUTPUT..."
+echo "Found asset ID $ASSET_ID. Preparing to download to $OUTPUT ..."
 
-# Download asset with correct headers
+# ---------------------------
+# Ensure output directory exists
+# ---------------------------
+OUTPUT_DIR=$(dirname "$OUTPUT")
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo "Creating output directory: $OUTPUT_DIR"
+    mkdir -p "$OUTPUT_DIR"
+fi
+
+# ---------------------------
+# Download asset
+# ---------------------------
+echo "Downloading..."
 if [ -n "$TOKEN" ]; then
     curl -L -H "Authorization: token $TOKEN" -H "Accept: application/octet-stream" "$DOWNLOAD_URL" -o "$OUTPUT"
 else
     curl -L -H "Accept: application/octet-stream" "$DOWNLOAD_URL" -o "$OUTPUT"
 fi
 
-# Quick check if file is HTML (indicates failure)
+# ---------------------------
+# Verify download
+# ---------------------------
 if head -c 15 "$OUTPUT" | grep -qi "<!DOCTYPE html>"; then
     echo "Error: Download failed. Likely the asset is private and token is missing or invalid."
     rm -f "$OUTPUT"
