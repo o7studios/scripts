@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -e
+
+# ===========================
+# Usage:
+# ./setup-kubectl.sh \
+#   --kubeconfig "/home/$USER/.kube/config" \
+#   --cluster-name "test-cluster" \
+#   --server "https://188.245.204.73:6443" \
+#   --oidc-issuer-url "https://auth.o7.studio/application/o/o7studios-test-cluster/" \
+#   --oidc-client-id "dflkmdkljmblksmlgmsfmg" \
+#   [--oidc-username-claim "email"] \
+#   [--oidc-groups-claim "groups"]
+# ===========================
+
+# ---------------------------
+# Default Parameters
+# ---------------------------
+KUBECONFIG_PATH="$HOME/.kube/config"
+CLUSTER_NAME="k3s-cluster"
+OIDC_USERNAME_CLAIM="email"
+OIDC_GROUPS_CLAIM="groups"
+
+# ---------------------------
+# Parse arguments
+# ---------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --kubeconfig) KUBECONFIG_PATH="$2"; shift 2;;
+        --cluster-name) CLUSTER_NAME="$2"; shift 2;;
+        --server) SERVER="$2"; shift 2;;
+        --oidc-issuer-url) OIDC_ISSUER_URL="$2"; shift 2;;
+        --oidc-client-id) OIDC_CLIENT_ID="$2"; shift 2;;
+        --oidc-username-claim) OIDC_USERNAME_CLAIM="$2"; shift 2;;
+        --oidc-groups-claim) OIDC_GROUPS_CLAIM="$2"; shift 2;;
+        *) echo "Unknown parameter: $1"; exit 1;;
+    esac
+done
+
+# ---------------------------
+# Check required parameters
+# ---------------------------
+if [[ -z "$SERVER" || -z "$OIDC_ISSUER_URL" || -z "$OIDC_CLIENT_ID" ]]; then
+    echo "Error: --server, --oidc-issuer-url and --oidc-client-id are required."
+    exit 1
+fi
+
+OS=$(uname | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+[[ "$ARCH" == "x86_64" ]] && ARCH="amd64"
+
+# ---------------------------
+# Install kubectl if missing
+# ---------------------------
+if ! command -v kubectl >/dev/null 2>&1; then
+    echo "kubectl not found, installing..."
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/${OS}/${ARCH}/kubectl"
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/${OS}/${ARCH}/kubectl.sha256"
+    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    kubectl version --client
+    rm ./kubectl
+    rm ./kubectl.sha256
+fi
+
+# ---------------------------
+# Install kubelogin OIDC plugin if missing
+# ---------------------------
+if ! command -v kubectl-oidc-login >/dev/null 2>&1; then
+    echo "kubelogin-oidc plugin not found, installing..."
+    curl -LO "https://github.com/int128/kubelogin/releases/latest/download/kubelogin_${OS}_${ARCH}.zip"
+    curl -LO "https://github.com/int128/kubelogin/releases/latest/download/kubelogin_${OS}_${ARCH}.zip.sha256"
+    echo "$(cat kubelogin_${OS}_${ARCH}.zip.sha256)  kubelogin_${OS}_${ARCH}.zip" | sha256sum --check
+    unzip kubelogin_${OS}_${ARCH}.zip
+    sudo install -o root -g root -m 0755 kubelogin /usr/local/bin/kubectl-oidc-login
+    rm ./kubelogin_${OS}_${ARCH}.tar.gz
+    rm ./kubelogin_${OS}_${ARCH}.tar.gz.sha256
+fi
+
+# ---------------------------
+# Create kubeconfig with OIDC exec
+# ---------------------------
+mkdir -p "$(dirname "$KUBECONFIG_PATH")"
+
+cat > "$KUBECONFIG_PATH" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- name: ${CLUSTER_NAME}
+  cluster:
+    server: ${SERVER}
+    insecure-skip-tls-verify: true
+contexts:
+- name: ${CLUSTER_NAME}
+  context:
+    cluster: ${CLUSTER_NAME}
+    user: oidc-user
+current-context: ${CLUSTER_NAME}
+users:
+- name: oidc-user
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: kubectl
+      args:
+        - oidc-login
+        - get-token
+        - --oidc-issuer-url=${OIDC_ISSUER_URL}
+        - --oidc-client-id=${OIDC_CLIENT_ID}
+        - --oidc-extra-scope=profile
+        - --oidc-extra-scope=email
+EOF
+
+echo "Kubeconfig written to $KUBECONFIG_PATH"
+echo "You can now use kubectl with:"
+echo "export KUBECONFIG=$KUBECONFIG_PATH"

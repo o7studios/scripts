@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -e
+
+# ===========================
+# Usage:
+# ./k3d-test-install \
+#   --oidc-issuer-url "https://auth.example.com/application/o/k8s-test/" \
+#   --oidc-client-id "kubernetes-test" \
+#   --oidc-username-claim "email" \
+#   --oidc-groups-claim "groups"
+# Optional:
+#   --k3s-version "v1.30.4+k3s1"
+#   --copy-kubeconfig "~/.kube/config"
+# ===========================
+
+# ---------------------------
+# Default Parameters
+# ---------------------------
+K3S_VERSION=
+COPY_KUBECONFIG=""
+DISABLE_TRAEFIK="true"
+ADVERTISE_ADDRESS=""
+NODE_IP=""
+
+
+# Required parameters
+OIDC_ISSUER_URL=""
+OIDC_CLIENT_ID=""
+OIDC_USERNAME_CLAIM="email"
+OIDC_GROUPS_CLAIM="groups"
+
+# ---------------------------
+# Argument parsing
+# ---------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --oidc-issuer-url) OIDC_ISSUER_URL="$2"; shift 2;;
+        --oidc-client-id) OIDC_CLIENT_ID="$2"; shift 2;;
+        --oidc-username-claim) OIDC_USERNAME_CLAIM="$2"; shift 2;;
+        --oidc-groups-claim) OIDC_GROUPS_CLAIM="$2"; shift 2;;
+        --k3s-version) K3S_VERSION="$2"; shift 2;;
+        --copy-kubeconfig) COPY_KUBECONFIG="$2"; shift 2;;
+        --disable-traefik) DISABLE_TRAEFIK="$2"; shift 2;;
+        --advertise-address) ADVERTISE_ADDRESS="$2"; shift 2;;
+        --node-ip) NODE_IP="$2"; shift 2;;
+        *) echo "Unknown parameter: $1"; exit 1;;
+    esac
+done
+
+
+# ---------------------------
+# Validate required parameters
+# ---------------------------
+if [[ -z "$OIDC_ISSUER_URL" || -z "$OIDC_CLIENT_ID" ]]; then
+    echo "Error: --oidc-issuer-url and --oidc-client-id are required."
+    exit 1
+fi
+
+# ---------------------------
+# Root check
+# ---------------------------
+if [[ "$EUID" -ne 0 ]]; then
+   echo "Please run as root"
+   exit 1
+fi
+
+
+# ---------------------------
+# Disable swap
+# ---------------------------
+swapoff -a
+sed -i.bak '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+# ---------------------------
+# Install k3s
+# ---------------------------
+K3S_INSTALL_CMD="curl -sfL https://get.k3s.io | sh -s - server"
+
+if [[ -n "$K3S_VERSION" ]]; then
+    K3S_INSTALL_CMD="curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${K3S_VERSION} sh -s - server"
+fi
+
+# Optional flags
+[[ "$DISABLE_TRAEFIK" == "true" ]] && K3S_INSTALL_CMD="$K3S_INSTALL_CMD --disable traefik"
+[[ -n "$ADVERTISE_ADDRESS" ]] && K3S_INSTALL_CMD="$K3S_INSTALL_CMD --advertise-address $ADVERTISE_ADDRESS"
+[[ -n "$NODE_IP" ]] && K3S_INSTALL_CMD="$K3S_INSTALL_CMD --node-ip $NODE_IP"
+
+# OIDC flags
+K3S_INSTALL_CMD="$K3S_INSTALL_CMD \
+  --kube-apiserver-arg=oidc-issuer-url=$OIDC_ISSUER_URL \
+  --kube-apiserver-arg=oidc-client-id=$OIDC_CLIENT_ID \
+  --kube-apiserver-arg=oidc-username-claim=$OIDC_USERNAME_CLAIM \
+  --kube-apiserver-arg=oidc-groups-claim=$OIDC_GROUPS_CLAIM"
+
+echo "Installing k3s..."
+eval "$K3S_INSTALL_CMD"
+
+# ---------------------------
+# Wait for API to be ready
+# ---------------------------
+echo "Waiting for kube-apiserver to become ready..."
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export KUBECONFIG
+
+for i in {1..20}; do
+    if kubectl get nodes >/dev/null 2>&1; then
+        echo "Kubernetes API ready!"
+        break
+    fi
+    echo "Waiting for API... ($i/20)"
+    sleep 5
+done
+
+# ---------------------------
+# Copy kubeconfig if requested
+# ---------------------------
+if [[ -n "$COPY_KUBECONFIG" ]]; then
+    mkdir -p "$(dirname "$COPY_KUBECONFIG")"
+    cp /etc/rancher/k3s/k3s.yaml "$COPY_KUBECONFIG"
+    chown $(logname):$(logname) "$COPY_KUBECONFIG"
+    echo "Kubeconfig copied to $COPY_KUBECONFIG"
+fi
+
+# ---------------------------
+# Final message
+# ---------------------------
+echo "k3s installation complete!"
+echo "Kubeconfig path: /etc/rancher/k3s/k3s.yaml"
+if [[ -n "$COPY_KUBECONFIG" ]]; then
+    echo "You can now use kubectl with: export KUBECONFIG=$COPY_KUBECONFIG"
+else
+    echo "You can use kubectl with: export KUBECONFIG=/etc/rancher/k3s/k3s.yaml"
+fi
+echo "Developer login via kubelogin + OIDC should now work with PKCE."
