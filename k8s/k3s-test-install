@@ -18,7 +18,7 @@ set -e
 # ---------------------------
 K3S_VERSION=
 COPY_KUBECONFIG=""
-DISABLE_TRAEFIK="true"
+DISABLE_TRAEFIK="false"
 ADVERTISE_ADDRESS=""
 NODE_IP=""
 
